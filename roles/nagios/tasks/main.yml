@@ -1,0 +1,223 @@
+---
+- name: Install dependencies
+  ansible.builtin.apt:
+    name:
+      - wget
+      - unzip
+      - curl
+      - openssl
+      - build-essential
+      - libgd-dev
+      - libssl-dev
+      - libapache2-mod-php
+      - php-gd
+      - php
+      - apache2
+      - apache2-utils
+      - bc
+      - gawk
+      - dc
+      - autoconf
+      - gcc
+      - libc6
+      - make
+      - snmp
+      - libnet-snmp-perl
+      - gettext
+    state: present
+    update_cache: true
+
+- name: Download Nagios core source tarball
+  ansible.builtin.get_url:
+    url: https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.4.6.tar.gz
+    dest: /tmp/nagios-4.4.6.tar.gz
+    mode: "0644"
+
+- name: Extract Nagios source tarball
+  ansible.builtin.unarchive:
+    src: /tmp/nagios-4.4.6.tar.gz
+    dest: /tmp/
+    remote_src: true
+
+- name: Create users and groups
+  block:
+    - name: Create nagios user with home directory and bash shell
+      ansible.builtin.user:
+        name: nagios
+        shell: /bin/bash
+        create_home: true
+
+    - name: Create nagcmd group
+      ansible.builtin.group:
+        name: nagcmd
+
+    - name: Add nagios user to nagcmd group
+      ansible.builtin.user:
+        name: nagios
+        groups: nagcmd
+        append: true
+
+    - name: Add www-data user to nagcmd group
+      ansible.builtin.user:
+        name: www-data
+        groups: nagcmd
+        append: true
+
+- name: Configure, compile and install
+  block:
+    - name: Configure Nagios
+      ansible.builtin.command:
+        cmd: ./configure --with-nagios-group=nagios --with-command-group=nagcmd
+      args:
+        chdir: /tmp/nagios-4.4.6
+
+    - name: Compile Nagios source
+      ansible.builtin.command:
+        cmd: make all
+      args:
+        chdir: /tmp/nagios-4.4.6
+
+    - name: Install Nagios binaries
+      ansible.builtin.command:
+        cmd: make install
+      args:
+        chdir: /tmp/nagios-4.4.6
+
+    - name: Install Nagios init script
+      ansible.builtin.command:
+        cmd: make install-init
+      args:
+        chdir: /tmp/nagios-4.4.6
+
+    - name: Install Nagios command mode
+      ansible.builtin.command:
+        cmd: make install-commandmode
+      args:
+        chdir: /tmp/nagios-4.4.6
+
+    - name: Install Nagios configuration files
+      ansible.builtin.command:
+        cmd: make install-config
+      args:
+        chdir: /tmp/nagios-4.4.6
+
+    - name: Install Nagios web interface files
+      ansible.builtin.command:
+        cmd: make install-webconf
+      args:
+        chdir: /tmp/nagios-4.4.6
+
+- name: Enable Apache modules rewrite and CGI
+  block:
+    - name: Enable Apache rewrite module
+      ansible.builtin.command:
+        cmd: a2enmod rewrite
+
+    - name: Enable Apache CGI module
+      ansible.builtin.command:
+        cmd: a2enmod cgi
+
+- name: Enable and update firewall rules
+  block:
+    - name: Allow Apache through firewall
+      ansible.builtin.ufw:
+        rule: allow
+        name: "Apache"
+
+    - name: Allow SSH through firewall
+      ansible.builtin.ufw:
+        rule: allow
+        name: "OpenSSH"
+
+    - name: Enable UFW firewall
+      ansible.builtin.ufw:
+        state: enabled
+
+    - name: Reload UFW firewall
+      ansible.builtin.ufw:
+        state: reloaded
+
+- name: Restart Apache service
+  ansible.builtin.service:
+    name: apache2
+    state: restarted
+
+- name: Create Nagios admin web user with htpasswd
+  ansible.builtin.command:
+    cmd: htpasswd -cb /usr/local/nagios/etc/htpasswd.users nagiosadmin {{ nagiosadminpass }}
+  args:
+    creates: /usr/local/nagios/etc/htpasswd.users
+
+- name: Download, extract, configure, compile and install nagios-plugins
+  block:
+    - name: Download Nagios plugins source tarball
+      ansible.builtin.get_url:
+        url: https://nagios-plugins.org/download/nagios-plugins-2.3.3.tar.gz
+        dest: /tmp/nagios-plugins-2.3.3.tar.gz
+        mode: "0644"
+
+    - name: Extract Nagios plugins source tarball
+      ansible.builtin.unarchive:
+        src: /tmp/nagios-plugins-2.3.3.tar.gz
+        dest: /tmp/
+        remote_src: true
+
+    - name: Configure Nagios plugins
+      ansible.builtin.command:
+        cmd: ./configure --with-nagios-user=nagios --with-nagios-group=nagios
+      args:
+        chdir: /tmp/nagios-plugins-2.3.3
+
+    - name: Compile Nagios plugins
+      ansible.builtin.command:
+        cmd: make
+      args:
+        chdir: /tmp/nagios-plugins-2.3.3
+
+    - name: Install Nagios plugins
+      ansible.builtin.command:
+        cmd: make install
+      args:
+        chdir: /tmp/nagios-plugins-2.3.3
+
+- name: Add servers directory to Nagios configuration
+  ansible.builtin.lineinfile:
+    path: /usr/local/nagios/etc/nagios.cfg
+    line: cfg_dir=/usr/local/nagios/etc/servers
+    create: yes
+
+- name: Create Nagios servers directory
+  ansible.builtin.file:
+    path: /usr/local/nagios/etc/servers
+    state: directory
+    owner: nagios
+    group: nagios
+    mode: "0755"
+
+- name: Deploy Nagios host and services configuration
+  ansible.builtin.template:
+    src: host.cfg.j2
+    dest: /usr/local/nagios/etc/servers/hosts_services.cfg
+    owner: nagios
+    group: nagios
+    mode: "0644"
+  vars:
+    host_name: "app_server"
+    address: "{{ hostvars['app_server']['private_ip'] }}"
+
+- name:
+  block:
+    - name: Verify Nagios configuration
+      ansible.builtin.command:
+        cmd: /usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg
+
+    - name: Start Nagios service
+      ansible.builtin.service:
+        name: nagios
+        state: started
+        enabled: yes
+
+    - name: Restart Apache service
+      ansible.builtin.service:
+        name: apache2
+        state: restarted

@@ -1,0 +1,59 @@
+---
+- name: Setup app server
+  hosts: app
+  remote_user: ubuntu
+  become: true
+
+  roles:
+    - ufw
+    - docker
+
+  vars:
+    app_repo_url: "https://github.com/tech1savvy/weather-app-vanilla.git" # <-- IMPORTANT: Replace with your repository URL
+    app_path: "/srv/app"
+    container_name: "my-app-container"
+    image_name: "my-app"
+
+  tasks:
+    - name: Allow traffic from Nagios server
+      community.general.ufw:
+        rule: allow
+        src: "{{ hostvars['nagios_server'].private_ip }}"
+        proto: any
+
+    - name: Clone the application repository
+      ansible.builtin.git:
+        repo: "{{ app_repo_url }}"
+        dest: "{{ app_path }}"
+        force: true
+
+    - name: Stop and remove the existing container
+      community.general.docker_container:
+        name: "{{ container_name }}"
+        state: absent
+        force_kill: true
+
+    - name: Remove the existing docker image
+      community.general.docker_image:
+        name: "{{ image_name }}"
+        state: absent
+        force_absent: true
+
+    - name: Build the docker image
+      community.general.docker_image:
+        name: "{{ image_name }}"
+        build:
+          path: "{{ app_path }}"
+        source: build
+        state: present
+
+    - name: Run the docker container
+      community.general.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ image_name }}"
+        state: started
+        restart_policy: always
+        ports:
+          # - "80:8080" # Exposes container port 8080 on host port 80
+          - "80:80" # Exposes container port 8080 on host port 80
+

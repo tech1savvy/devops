@@ -1,0 +1,15 @@
+---
+- name: Ensure ufw is present
+  ansible.builtin.apt:
+    name: ufw
+
+- name: Allow SSH
+  community.general.ufw:
+    rule: allow
+    name: OpenSSH
+
+- name: Allow HTTP
+  community.general.ufw:
+    rule: allow
+    port: 80
+  notify: Reload ufw

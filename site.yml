@@ -1,0 +1,6 @@
+---
+- name: Run App Playbook
+  import_playbook: app.yml
+
+- name: Run Nagios Playbook
+  import_playbook: nagios.yml
