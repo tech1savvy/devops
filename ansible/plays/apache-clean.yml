@@ -1,0 +1,25 @@
+---
+- name: Remove Apache and clean content
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Stop Apache if running
+      service:
+        name: apache2
+        state: stopped
+      ignore_errors: yes
+
+    - name: Remove Apache package
+      apt:
+        name: apache2
+        state: absent
+        purge: yes
+
+    - name: Remove Apache directories
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/www/html
+        - /etc/apache2
