@@ -1,6 +1,6 @@
 module "app" {
   source        = "./modules/ec2"
-  instance_name = "app"
+  instance_name = "app1"
   vpc_id        = var.vpc_id
   subnet_id     = var.subnet_id
   key_name      = var.key_name
@@ -9,7 +9,7 @@ module "app" {
 
 module "nagios" {
   source        = "./modules/ec2"
-  instance_name = "nagios"
+  instance_name = "nagios1"
   vpc_id        = var.vpc_id
   subnet_id     = var.subnet_id
   key_name      = var.key_name
